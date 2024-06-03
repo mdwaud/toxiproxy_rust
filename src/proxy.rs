@@ -68,12 +68,12 @@ impl Proxy {
     /// # )]);
     /// toxiproxy_rust::TOXIPROXY.find_proxy("socket").unwrap().disable();
     /// ```
-    pub fn disable(&self) -> Result<(), String> {
+    pub async fn disable(&self) -> Result<(), String> {
         let mut payload: HashMap<String, bool> = HashMap::new();
         payload.insert("enabled".into(), false);
         let body = serde_json::to_string(&payload).map_err(|_| ERR_JSON_SERIALIZE)?;
 
-        self.update(body)
+        self.update(body).await
     }
 
     /// Enables the proxy.
@@ -88,21 +88,22 @@ impl Proxy {
     /// # )]);
     /// toxiproxy_rust::TOXIPROXY.find_proxy("socket").unwrap().enable();
     /// ```
-    pub fn enable(&self) -> Result<(), String> {
+    pub async fn enable(&self) -> Result<(), String> {
         let mut payload: HashMap<String, bool> = HashMap::new();
         payload.insert("enabled".into(), true);
         let body = serde_json::to_string(&payload).map_err(|_| ERR_JSON_SERIALIZE)?;
 
-        self.update(body)
+        self.update(body).await
     }
 
-    fn update(&self, payload: String) -> Result<(), String> {
+    async fn update(&self, payload: String) -> Result<(), String> {
         let path = format!("proxies/{}", self.proxy_pack.name);
 
         self.client
             .lock()
             .map_err(|err| format!("lock error: {}", err))?
             .post_with_data(&path, payload)
+            .await
             .map(|_| ())
     }
 
@@ -118,13 +119,14 @@ impl Proxy {
     /// # )]);
     /// toxiproxy_rust::TOXIPROXY.find_proxy("socket").unwrap().delete();
     /// ```
-    pub fn delete(&self) -> Result<(), String> {
+    pub async fn delete(&self) -> Result<(), String> {
         let path = format!("proxies/{}", self.proxy_pack.name);
 
         self.client
             .lock()
             .map_err(|err| format!("lock error: {}", err))?
             .delete(&path)
+            .await
             .map(|_| ())
     }
 
@@ -140,18 +142,23 @@ impl Proxy {
     /// # )]);
     /// let toxics = toxiproxy_rust::TOXIPROXY.find_proxy("socket").unwrap().toxics().unwrap();
     /// ```
-    pub fn toxics(&self) -> Result<Vec<ToxicPack>, String> {
+    pub async fn toxics(&self) -> Result<Vec<ToxicPack>, String> {
         let path = format!("proxies/{}/toxics", self.proxy_pack.name);
 
-        self.client
+        let result = self
+            .client
             .lock()
             .map_err(|err| format!("lock error: {}", err))?
             .get(&path)
-            .and_then(|response| {
-                response
-                    .json()
-                    .map_err(|err| format!("json deserialize failed: {}", err))
-            })
+            .await;
+
+        match result {
+            Ok(response) => response
+                .json()
+                .await
+                .map_err(|err| format!("json deserialize failed: {}", err)),
+            Err(err) => Err(format!("GET error: {}", err)),
+        }
     }
 
     /// Registers a [latency] Toxic.
@@ -171,7 +178,7 @@ impl Proxy {
     /// ```
     ///
     /// [latency]: https://github.com/Shopify/toxiproxy#latency
-    pub fn with_latency(
+    pub async fn with_latency(
         &self,
         stream: String,
         latency: ToxicValueType,
@@ -188,6 +195,7 @@ impl Proxy {
             toxicity,
             attributes,
         ))
+        .await
     }
 
     /// Registers a [bandwith] Toxic.
@@ -207,7 +215,12 @@ impl Proxy {
     /// ```
     ///
     /// [bandwith]: https://github.com/Shopify/toxiproxy#bandwith
-    pub fn with_bandwidth(&self, stream: String, rate: ToxicValueType, toxicity: f32) -> &Self {
+    pub async fn with_bandwidth(
+        &self,
+        stream: String,
+        rate: ToxicValueType,
+        toxicity: f32,
+    ) -> &Self {
         let mut attributes = HashMap::new();
         attributes.insert("rate".into(), rate);
 
@@ -217,6 +230,7 @@ impl Proxy {
             toxicity,
             attributes,
         ))
+        .await
     }
 
     /// Registers a [slow_close] Toxic.
@@ -236,7 +250,12 @@ impl Proxy {
     /// ```
     ///
     /// [slow_close]: https://github.com/Shopify/toxiproxy#slow_close
-    pub fn with_slow_close(&self, stream: String, delay: ToxicValueType, toxicity: f32) -> &Self {
+    pub async fn with_slow_close(
+        &self,
+        stream: String,
+        delay: ToxicValueType,
+        toxicity: f32,
+    ) -> &Self {
         let mut attributes = HashMap::new();
         attributes.insert("delay".into(), delay);
 
@@ -246,6 +265,7 @@ impl Proxy {
             toxicity,
             attributes,
         ))
+        .await
     }
 
     /// Registers a [timeout] Toxic.
@@ -265,7 +285,12 @@ impl Proxy {
     /// ```
     ///
     /// [timeout]: https://github.com/Shopify/toxiproxy#timeout
-    pub fn with_timeout(&self, stream: String, timeout: ToxicValueType, toxicity: f32) -> &Self {
+    pub async fn with_timeout(
+        &self,
+        stream: String,
+        timeout: ToxicValueType,
+        toxicity: f32,
+    ) -> &Self {
         let mut attributes = HashMap::new();
         attributes.insert("timeout".into(), timeout);
 
@@ -275,6 +300,7 @@ impl Proxy {
             toxicity,
             attributes,
         ))
+        .await
     }
 
     /// Registers a [slicer] Toxic.
@@ -294,7 +320,7 @@ impl Proxy {
     /// ```
     ///
     /// [slicer]: https://github.com/Shopify/toxiproxy#slicer
-    pub fn with_slicer(
+    pub async fn with_slicer(
         &self,
         stream: String,
         average_size: ToxicValueType,
@@ -313,6 +339,7 @@ impl Proxy {
             toxicity,
             attributes,
         ))
+        .await
     }
 
     /// Registers a [limit_data] Toxic.
@@ -332,7 +359,12 @@ impl Proxy {
     /// ```
     ///
     /// [limit_data]: https://github.com/Shopify/toxiproxy#limit_data
-    pub fn with_limit_data(&self, stream: String, bytes: ToxicValueType, toxicity: f32) -> &Self {
+    pub async fn with_limit_data(
+        &self,
+        stream: String,
+        bytes: ToxicValueType,
+        toxicity: f32,
+    ) -> &Self {
         let mut attributes = HashMap::new();
         attributes.insert("bytes".into(), bytes);
 
@@ -342,9 +374,10 @@ impl Proxy {
             toxicity,
             attributes,
         ))
+        .await
     }
 
-    fn create_toxic(&self, toxic: ToxicPack) -> &Self {
+    async fn create_toxic(&self, toxic: ToxicPack) -> &Self {
         let body = serde_json::to_string(&toxic).expect(ERR_JSON_SERIALIZE);
         let path = format!("proxies/{}/toxics", self.proxy_pack.name);
 
@@ -353,6 +386,7 @@ impl Proxy {
             .lock()
             .expect(ERR_LOCK)
             .post_with_data(&path, body)
+            .await
             .map_err(|err| {
                 panic!("<proxies>.<toxics> creation has failed: {}", err);
             });
@@ -382,13 +416,13 @@ impl Proxy {
     /// ```
     ///
     /// [disabled]: https://github.com/Shopify/toxiproxy#down
-    pub fn with_down<F>(&self, closure: F) -> Result<(), String>
+    pub async fn with_down<F>(&self, closure: F) -> Result<(), String>
     where
         F: FnOnce(),
     {
-        self.disable()?;
+        self.disable().await?;
         closure();
-        self.enable()
+        self.enable().await
     }
 
     /// Runs a call with the current Toxic setup for the proxy.
@@ -416,12 +450,12 @@ impl Proxy {
     ///     */
     ///   });
     /// ```
-    pub fn apply<F>(&self, closure: F) -> Result<(), String>
+    pub async fn apply<F>(&self, closure: F) -> Result<(), String>
     where
         F: FnOnce(),
     {
         closure();
-        self.delete_all_toxics()
+        self.delete_all_toxics().await
     }
 
     /// Deletes all toxics on the proxy.
@@ -439,17 +473,23 @@ impl Proxy {
     ///   .unwrap()
     ///   .delete_all_toxics();
     /// ```
-    pub fn delete_all_toxics(&self) -> Result<(), String> {
-        self.toxics().and_then(|toxic_list| {
-            for toxic in toxic_list {
-                let path = format!("proxies/{}/toxics/{}", self.proxy_pack.name, toxic.name);
-                self.client
-                    .lock()
-                    .map_err(|err| format!("lock error: {}", err))?
-                    .delete(&path)?;
-            }
+    pub async fn delete_all_toxics(&self) -> Result<(), String> {
+        let result = self.toxics().await;
 
-            Ok(())
-        })
+        match result {
+            Ok(toxic_list) => {
+                for toxic in toxic_list {
+                    let path = format!("proxies/{}/toxics/{}", self.proxy_pack.name, toxic.name);
+                    self.client
+                        .lock()
+                        .map_err(|err| format!("lock error: {}", err))?
+                        .delete(&path)
+                        .await?;
+                }
+
+                Ok(())
+            }
+            Err(err) => Err(format!("GET error: {}", err)),
+        }
     }
 }

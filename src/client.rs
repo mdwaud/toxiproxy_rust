@@ -52,17 +52,24 @@ impl Client {
     ///     "localhost:2000".into(),
     /// )]).expect("populate has completed");
     /// ```
-    pub fn populate(&self, proxies: Vec<ProxyPack>) -> Result<Vec<Proxy>, String> {
+    pub async fn populate(&self, proxies: Vec<ProxyPack>) -> Result<Vec<Proxy>, String> {
         let proxies_json = serde_json::to_string(&proxies).unwrap();
-        self.client
+        let result = self
+            .client
             .lock()
             .map_err(|err| format!("lock error: {}", err))?
             .post_with_data("populate", proxies_json)
-            .and_then(|response| {
-                response
-                    .json::<HashMap<String, Vec<ProxyPack>>>()
-                    .map_err(|err| format!("json deserialize failed: {}", err))
-            })
+            .await;
+
+        let result2 = match result {
+            Ok(response) => response
+                .json::<HashMap<String, Vec<ProxyPack>>>()
+                .await
+                .map_err(|err| format!("json deserialize failed: {}", err)),
+            Err(err) => Err(err),
+        };
+
+        result2
             .map(|ref mut response_obj| response_obj.remove("proxies").unwrap_or(vec![]))
             .map(|proxy_packs| {
                 proxy_packs
@@ -86,11 +93,12 @@ impl Client {
     /// ```
     /// toxiproxy_rust::TOXIPROXY.reset();
     /// ```
-    pub fn reset(&self) -> Result<(), String> {
+    pub async fn reset(&self) -> Result<(), String> {
         self.client
             .lock()
             .map_err(|err| format!("lock error: {}", err))?
             .post("reset")
+            .await
             .map(|_| ())
     }
 
@@ -101,24 +109,29 @@ impl Client {
     /// ```
     /// let proxies = toxiproxy_rust::TOXIPROXY.all().expect("all proxies were fetched");
     /// ```
-    pub fn all(&self) -> Result<HashMap<String, Proxy>, String> {
-        self.client
+    pub async fn all(&self) -> Result<HashMap<String, Proxy>, String> {
+        let result = self
+            .client
             .lock()
             .map_err(|err| format!("lock error: {}", err))?
             .get("proxies")
-            .and_then(|response| {
-                response
-                    .json()
-                    .map(|proxy_map: HashMap<String, ProxyPack>| {
-                        proxy_map
-                            .into_iter()
-                            .map(|(name, proxy_pack)| {
-                                (name, Proxy::new(proxy_pack, self.client.clone()))
-                            })
-                            .collect()
-                    })
-                    .map_err(|err| format!("json deserialize failed: {}", err))
-            })
+            .await;
+
+        match result {
+            Ok(response) => response
+                .json()
+                .await
+                .map(|proxy_map: HashMap<String, ProxyPack>| {
+                    proxy_map
+                        .into_iter()
+                        .map(|(name, proxy_pack)| {
+                            (name, Proxy::new(proxy_pack, self.client.clone()))
+                        })
+                        .collect()
+                })
+                .map_err(|err| format!("json deserialize failed: {}", err)),
+            Err(err) => Err(err),
+        }
     }
 
     /// Health check for the Toxiproxy server.
@@ -134,26 +147,30 @@ impl Client {
         self.client.lock().expect("Client lock failed").is_alive()
     }
 
-    /// Version of the Toxiproxy server.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// let version = toxiproxy_rust::TOXIPROXY.version().expect("version is returned");
-    /// ```
-    pub fn version(&self) -> Result<String, String> {
-        self.client
+    /*
+        TODO: maybe fix
+        /// Version of the Toxiproxy server.
+        ///
+        /// # Examples
+        ///
+        /// ```
+        /// let version = toxiproxy_rust::TOXIPROXY.version().expect("version is returned");
+        /// ```
+        pub async fn version(&self) -> Result<String, String> {
+            self.client
             .lock()
             .map_err(|err| format!("lock error: {}", err))?
             .get("version")
+            .await
             .map(|ref mut response| {
                 let mut body = String::new();
                 response
-                    .read_to_string(&mut body)
-                    .expect("HTTP response cannot be read");
-                body
-            })
+                .read_to_string(&mut body)
+                .expect("HTTP response cannot be read");
+            body
+        })
     }
+    */
 
     /// Fetches a proxy a resets its state (remove active toxics). Usually a good way to start a test and to start setting up
     /// toxics fresh against the proxy.
@@ -168,12 +185,15 @@ impl Client {
     /// # )]).unwrap();
     /// let proxy = toxiproxy_rust::TOXIPROXY.find_and_reset_proxy("socket").expect("proxy returned");
     /// ```
-    pub fn find_and_reset_proxy(&self, name: &str) -> Result<Proxy, String> {
-        self.find_proxy(name).and_then(|proxy| {
-            proxy.delete_all_toxics()?;
-            proxy.enable()?;
-            Ok(proxy)
-        })
+    pub async fn find_and_reset_proxy(&self, name: &str) -> Result<Proxy, String> {
+        match self.find_proxy(name).await {
+            Ok(proxy) => {
+                proxy.delete_all_toxics().await?;
+                proxy.enable().await?;
+                Ok(proxy)
+            }
+            Err(err) => Err(err),
+        }
     }
 
     /// Fetches a proxy. Useful to fetch a proxy for a test where more fine grained control is required
@@ -189,18 +209,23 @@ impl Client {
     /// # )]).unwrap();
     /// let proxy = toxiproxy_rust::TOXIPROXY.find_proxy("socket").expect("proxy returned");
     /// ```
-    pub fn find_proxy(&self, name: &str) -> Result<Proxy, String> {
+    pub async fn find_proxy(&self, name: &str) -> Result<Proxy, String> {
         let path = format!("proxies/{}", name);
 
-        self.client
+        let result = self
+            .client
             .lock()
             .map_err(|err| format!("lock error: {}", err))?
             .get(&path)
-            .and_then(|response| {
-                response
-                    .json()
-                    .map_err(|err| format!("json deserialize failed: {}", err))
-            })
-            .and_then(|proxy_pack: ProxyPack| Ok(Proxy::new(proxy_pack, self.client.clone())))
+            .await;
+
+        match result {
+            Ok(response) => response
+                .json()
+                .await
+                .map_err(|err| format!("json deserialize failed: {}", err)),
+            Err(err) => Err(err),
+        }
+        .and_then(|proxy_pack: ProxyPack| Ok(Proxy::new(proxy_pack, self.client.clone())))
     }
 }
